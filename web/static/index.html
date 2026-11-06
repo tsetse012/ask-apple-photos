@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="referrer" content="no-referrer">
+<title>사진 찾기</title>
+<style>
+:root {
+  --bg: #f5f5f3; --card: #ffffff; --text: #1c1c1e; --muted: #6b6b70; --line: #e2e2de;
+  --accent: #2557d6; --accent-text: #ffffff; --chip: #ebebe8; --warn: #9a5600; --shade: rgba(0,0,0,.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111112; --card: #1c1c1e; --text: #f2f2f3; --muted: #a0a0a6; --line: #313134;
+    --accent: #5c8cff; --accent-text: #0b0b0c; --chip: #2a2a2d; --warn: #f0a24a; --shade: rgba(255,255,255,.04);
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+html { scroll-padding-top: 84px; } /* 고정 검색창 아래로 스크롤되게(버튼이 검색창에 가리지 않게) */
+body {
+  font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent;
+}
+body.noscroll { overflow: hidden; }
+main { max-width: 680px; margin: 0 auto; padding: 0 16px calc(28px + env(safe-area-inset-bottom)); }
+h1 { font-size: 20px; margin: 0; padding: calc(14px + env(safe-area-inset-top)) 0 6px; letter-spacing: -0.01em; }
+.sub { margin: 0 0 4px; color: var(--muted); font-size: 13.5px; }
+.bar { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 8px 0 10px; }
+form.row { display: flex; gap: 8px; margin: 0; }
+input[type=search], input[type=text] {
+  flex: 1; min-width: 0; font: inherit; font-size: 16px; padding: 12px 14px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--card); color: var(--text); outline: none; -webkit-appearance: none;
+}
+input:focus { border-color: var(--accent); }
+button {
+  font: inherit; font-size: 16px; font-weight: 600; padding: 12px 16px; border-radius: 12px; border: 0;
+  background: var(--accent); color: var(--accent-text); cursor: pointer; white-space: nowrap;
+}
+button.secondary { background: var(--chip); color: var(--text); font-weight: 500; }
+button:disabled { opacity: .45; }
+.status { color: var(--muted); font-size: 14px; min-height: 20px; margin: 2px 0 6px; }
+.error { color: var(--warn); font-size: 14.5px; margin: 6px 0; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin: 10px 0; }
+.card .label { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.clarify p { margin: 0 0 10px; font-weight: 600; }
+.clarify .alt { margin-top: 8px; width: 100%; }
+.summary p { margin: 0; white-space: pre-wrap; }
+.summary .why { margin-top: 6px; color: var(--muted); font-size: 13.5px; }
+.count { color: var(--muted); font-size: 13.5px; margin: 12px 2px 8px; }
+.note { color: var(--warn); font-size: 13.5px; margin: 6px 2px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tile {
+  position: relative; display: block; width: 100%; padding: 0; text-align: left; font-weight: 400;
+  background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+}
+.tile img, .tile .noimg { display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: cover; background: var(--chip); }
+.noimg { display: flex !important; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; }
+.tile .badge {
+  position: absolute; top: 6px; left: 6px; font-size: 11.5px; font-weight: 600; padding: 2px 7px; border-radius: 8px;
+  background: rgba(0,0,0,.62); color: #fff;
+}
+.tile .meta { padding: 6px 8px 8px; font-size: 12.5px; line-height: 1.35; }
+.tile .meta div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile .meta .d { font-weight: 600; }
+.tile .meta .p, .tile .meta .c { color: var(--muted); }
+.again { display: flex; gap: 8px; margin: 14px 0 4px; }
+.again button { flex: 1; }
+footer { color: var(--muted); font-size: 12.5px; line-height: 1.55; margin-top: 22px; border-top: 1px solid var(--line); padding-top: 10px; }
+.viewer {
+  position: fixed; inset: 0; z-index: 20; background: var(--bg); overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: calc(10px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom));
+}
+.viewer .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; }
+.viewer .top .pos { color: var(--muted); font-size: 14px; }
+.viewer .nav { display: flex; gap: 8px; }
+.viewer .nav button { padding: 10px 12px; }
+.viewer img, .viewer .noimg {
+  display: block; width: 100%; max-height: 62vh; object-fit: contain; border-radius: 12px; background: var(--shade);
+}
+.viewer .noimg { height: 40vh; }
+.vmeta { margin: 12px 2px; }
+.vmeta .d { font-weight: 600; font-size: 17px; }
+.vmeta .p { color: var(--muted); margin-top: 2px; }
+.vmeta .s { margin-top: 8px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chips span { background: var(--chip); border-radius: 8px; padding: 3px 8px; font-size: 13px; }
+.copybox .term { font-size: 19px; font-weight: 700; margin: 2px 0 10px; user-select: all; -webkit-user-select: all; }
+.copybox button { width: 100%; }
+.copybox .msg { color: var(--muted); font-size: 13.5px; margin-top: 8px; min-height: 18px; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>사진 찾기</h1>
+  <p class="sub">평소 말투로 물어보세요. 예: 저번달쯤 강원도 카페에서 찍은 사진</p>
+  <div class="bar">
+    <form class="row" id="askForm" autocomplete="off">
+      <input id="q" type="search" enterkeyhint="search" maxlength="300" placeholder="무엇을 찾을까요?" aria-label="질문">
+      <button id="sendBtn" type="submit">찾기</button>
+    </form>
+  </div>
+  <div id="status" class="status" role="status" aria-live="polite"></div>
+  <div id="error" class="error" role="alert" hidden></div>
+
+  <section id="clarify" class="card clarify" hidden>
+    <div class="label">조금 더 알려 주세요</div>
+    <p id="clarifyText"></p>
+    <form class="row" id="answerForm" autocomplete="off">
+      <input id="answer" type="text" enterkeyhint="send" maxlength="300" placeholder="답을 적어 주세요" aria-label="답">
+      <button type="submit">답하기</button>
+    </form>
+    <button id="dontKnow" class="secondary alt" type="button">모르겠어요 · 지금 후보 보기</button>
+  </section>
+
+  <section id="result" hidden>
+    <div class="card summary">
+      <p id="summary"></p>
+      <p id="why" class="why" hidden></p>
+    </div>
+    <div id="stopNote" class="note" hidden></div>
+    <div id="count" class="count"></div>
+    <div id="grid" class="grid"></div>
+    <div id="again" class="again" hidden>
+      <button class="secondary" type="button" data-follow="wider">더 넓게 다시</button>
+      <button class="secondary" type="button" data-follow="narrower">더 좁게 다시</button>
+    </div>
+  </section>
+
+  <footer>
+    이 화면은 사진 파일을 보내지 않아요. 질문과 글자 정보(날짜·장소·라벨·캡션 한 줄)만 Anthropic으로 갑니다.
+    <div id="costLine"></div>
+  </footer>
+</main>
+
+<div id="viewer" class="viewer" hidden role="dialog" aria-modal="true" aria-label="사진 크게 보기">
+  <div class="top">
+    <button id="closeViewer" class="secondary" type="button">닫기</button>
+    <span id="vPos" class="pos"></span>
+    <div class="nav">
+      <button id="vPrev" class="secondary" type="button" aria-label="이전 사진">이전</button>
+      <button id="vNext" class="secondary" type="button" aria-label="다음 사진">다음</button>
+    </div>
+  </div>
+  <img id="vImg" alt="">
+  <div id="vNoImg" class="noimg" hidden></div>
+  <div class="vmeta">
+    <div id="vDate" class="d"></div>
+    <div id="vPlace" class="p"></div>
+    <div id="vScene" class="s"></div>
+    <div id="vTags" class="chips"></div>
+  </div>
+  <div class="card copybox">
+    <div class="label">사진 앱에서 찾을 검색어</div>
+    <div id="vTerm" class="term"></div>
+    <button id="copyBtn" type="button">검색어 복사</button>
+    <div id="copyMsg" class="msg" aria-live="polite"></div>
+  </div>
+  <div class="again">
+    <button class="secondary" type="button" data-follow="wider">더 넓게 다시</button>
+    <button class="secondary" type="button" data-follow="narrower">더 좁게 다시</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const DONT_KNOW = '모르겠어요. 지금 후보로 보여 주세요.';
+  const STORE_KEY = 'photo-ask:last';
+  const S = { sid: null, cands: [], busy: false, vi: -1 };
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function fmtDate(c) {
+    const [d, t] = (c.date || '').split(' ');
+    return (d || '').split('-').join('.') + (c.weekday ? ' (' + c.weekday + ')' : '') + (t ? ' ' + t : '');
+  }
+  function fmtCost(x) { return '$' + (Number(x) || 0).toFixed(4); }
+  function setBusy(on) {
+    S.busy = on;
+    document.querySelectorAll('main button, main input, .viewer .again button').forEach((b) => { b.disabled = on; });
+  }
+  function clearError() { $('error').hidden = true; $('error').textContent = ''; }
+  function showError(msg) { $('status').textContent = ''; $('error').textContent = msg; $('error').hidden = false; }
+
+  async function send(payload, label) {
+    if (S.busy) return;
+    clearError();
+    setBusy(true);
+    const started = Date.now();
+    const tick = () => { $('status').textContent = label + ' ' + Math.round((Date.now() - started) / 1000) + '초'; };
+    tick();
+    const timer = setInterval(tick, 1000);
+    let res = null, data = null;
+    try {
+      res = await fetch('/api/ask', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+      });
+      try { data = await res.json(); } catch (_) { data = null; }
+    } catch (_) {
+      clearInterval(timer); setBusy(false);
+      showError('연결이 안 돼요. 인터넷과, 집 맥이 켜져 있는지 확인해 주세요.');
+      return;
+    }
+    clearInterval(timer); setBusy(false);
+    if (res.status === 401) { showError('로그인이 풀렸어요. 페이지를 새로고침해 주세요.'); return; }
+    if (!res.ok || !data || !data.ok) {
+      if (data && data.code === 'session_gone') { S.sid = null; $('again').hidden = true; $('clarify').hidden = true; }
+      showError((data && data.error) || ('오류가 났어요(' + res.status + ').'));
+      return;
+    }
+    render(data);
+    try { sessionStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch (_) { /* 저장 못 해도 화면은 그대로 */ }
+  }
+
+  function render(d) {
+    S.sid = d.session_id;
+    S.cands = d.candidates || [];
+    $('status').textContent = '';
+    const asked = d.status === 'asked' && !!d.question;
+    $('clarify').hidden = !asked;
+    if (asked) { $('clarifyText').textContent = d.question; $('answer').value = ''; }
+    $('result').hidden = false;
+    $('summary').textContent = d.summary || (d.total ? '' : '찾은 사진이 없어요.');
+    $('why').textContent = d.why ? '찾은 조건: ' + d.why : '';
+    $('why').hidden = !d.why;
+    let count = d.total ? (asked ? '지금까지 후보 ' : '후보 ') + d.total + '건' : '후보 없음';
+    if (d.total && d.shown < d.total) count += ' · 앞 ' + d.shown + '건 표시';
+    if (d.fallback) count += ' · 마지막 검색 결과로 대신 보여 줌';
+    $('count').textContent = count;
+    const odd = d.status !== 'answered' && d.status !== 'asked';
+    $('stopNote').hidden = !odd;
+    $('stopNote').textContent = odd ? '멈춘 이유: ' + d.status_ko + (d.error ? ' — ' + d.error : '') : '';
+    renderGrid();
+    $('again').hidden = asked || !d.can_continue;
+    $('costLine').textContent = '이번 질의 ' + fmtCost(d.cost_usd) + ' · ' + d.seconds + '초'
+      + (d.legs > 1 ? ' · 이 대화 누적 ' + fmtCost(d.session_cost_usd) : '');
+  }
+
+  function renderGrid() {
+    const g = $('grid');
+    g.replaceChildren();
+    S.cands.forEach((c, i) => {
+      const b = el('button', 'tile');
+      b.type = 'button';
+      b.setAttribute('aria-label', fmtDate(c) + ' ' + (c.place || '') + ' 크게 보기');
+      if (c.preview_url) {
+        const img = el('img');
+        img.loading = 'lazy'; img.decoding = 'async'; img.alt = ''; img.src = c.preview_url;
+        b.append(img);
+      } else {
+        b.append(el('div', 'noimg', c.hidden ? '숨김 사진' : '미리보기 없음'));
+      }
+      if (c.is_video) b.append(el('span', 'badge', c.duration_s ? '영상 ' + c.duration_s + '초' : '영상'));
+      const m = el('div', 'meta');
+      m.append(el('div', 'd', fmtDate(c)));
+      m.append(el('div', 'p', c.place || '장소 없음'));
+      const line = c.scene || (c.labels || []).join(', ');
+      if (line) m.append(el('div', 'c', line));
+      b.append(m);
+      b.addEventListener('click', () => openViewer(i, true));
+      g.append(b);
+    });
+  }
+
+  function openViewer(i, push) {
+    const c = S.cands[i];
+    if (!c) return;
+    S.vi = i;
+    if (c.preview_url) { $('vImg').src = c.preview_url; $('vImg').hidden = false; $('vNoImg').hidden = true; }
+    else {
+      $('vImg').removeAttribute('src'); $('vImg').hidden = true;
+      $('vNoImg').textContent = c.hidden ? '숨김 사진(미리보기 안 함)' : '미리보기 없음'; $('vNoImg').hidden = false;
+    }
+    $('vPos').textContent = (i + 1) + ' / ' + S.cands.length;
+    $('vDate').textContent = fmtDate(c) + (c.is_video ? ' · 영상' + (c.duration_s ? ' ' + c.duration_s + '초' : '') : '');
+    $('vPlace').textContent = c.place || '장소 정보 없음';
+    $('vScene').textContent = c.scene || '';
+    $('vScene').hidden = !c.scene;
+    const tags = [c.cuisine, c.doc_type].filter(Boolean).concat(c.labels || []);
+    $('vTags').replaceChildren(...tags.map((t) => el('span', null, t)));
+    $('vTerm').textContent = c.photos_search || '-';
+    $('copyMsg').textContent = c.photos_search_local_date ? '찍은 곳의 날짜예요(설정한 시간대의 날짜와 다름).' : '';
+    $('vPrev').disabled = i <= 0;
+    $('vNext').disabled = i >= S.cands.length - 1;
+    if ($('viewer').hidden) {
+      $('viewer').hidden = false;
+      document.body.classList.add('noscroll');
+      if (push) { try { history.pushState({ viewer: true }, ''); } catch (_) { /* 무시 */ } }
+    }
+    $('viewer').scrollTop = 0;
+  }
+  function closeViewer(fromPop) {
+    if ($('viewer').hidden) return;
+    $('viewer').hidden = true;
+    document.body.classList.remove('noscroll');
+    if (!fromPop && history.state && history.state.viewer) history.back();
+  }
+
+  async function copyTerm() {
+    const t = $('vTerm').textContent;
+    if (!t || t === '-') return;
+    let ok = false;
+    try { await navigator.clipboard.writeText(t); ok = true; } catch (_) {
+      const ta = document.createElement('textarea');
+      ta.value = t; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.append(ta); ta.select(); ta.setSelectionRange(0, t.length);
+      try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+      ta.remove();
+    }
+    $('copyMsg').textContent = ok ? '복사했어요. 사진 앱 검색창에 붙여 넣으세요.' : '복사가 안 됐어요. 글자를 길게 눌러 복사해 주세요.';
+  }
+
+  function follow(kind) {
+    if (!S.sid || S.busy) return;
+    closeViewer(false);
+    send({ session_id: S.sid, follow: kind }, kind === 'wider' ? '넓혀서 다시 찾는 중' : '좁혀서 다시 찾는 중');
+  }
+
+  $('askForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const q = $('q').value.trim();
+    if (!q) return;
+    if (document.activeElement) document.activeElement.blur();
+    send({ question: q }, '찾는 중');
+  });
+  $('answerForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const a = $('answer').value.trim();
+    if (!a || !S.sid) return;
+    if (document.activeElement) document.activeElement.blur();
+    send({ session_id: S.sid, answer: a }, '좁히는 중');
+  });
+  $('dontKnow').addEventListener('click', () => { if (S.sid) send({ session_id: S.sid, answer: DONT_KNOW }, '지금 후보 정리 중'); });
+  document.querySelectorAll('[data-follow]').forEach((b) => b.addEventListener('click', () => follow(b.dataset.follow)));
+  $('closeViewer').addEventListener('click', () => closeViewer(false));
+  $('vPrev').addEventListener('click', () => openViewer(S.vi - 1, false));
+  $('vNext').addEventListener('click', () => openViewer(S.vi + 1, false));
+  $('copyBtn').addEventListener('click', copyTerm);
+  window.addEventListener('popstate', () => closeViewer(true));
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeViewer(false); });
+
+  try {
+    const saved = sessionStorage.getItem(STORE_KEY);
+    if (saved) render(JSON.parse(saved));
+  } catch (_) { /* 저장된 화면이 없거나 못 읽으면 빈 화면 */ }
+})();
+</script>
+</body>
+</html>

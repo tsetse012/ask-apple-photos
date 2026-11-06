@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.omc/
+.claude/
+index/*.sqlite*
+index/previews/
+logs/
+out/
+tools/vision_helper

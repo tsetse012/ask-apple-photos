@@ -1,0 +1,8 @@
+osxphotos==0.77.2
+anthropic==1.12.1
+fastapi==0.142.4
+uvicorn==0.54.0
+httpx==0.28.1
+requests==2.34.2
+pyobjc-framework-Cocoa==13.0
+pyobjc-framework-Quartz==13.0
