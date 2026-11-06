@@ -14,6 +14,8 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
+from PIL import Image
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "index"))
@@ -21,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from photo_ask import caption, config, llm_log  # noqa: E402
 from photo_ask.cards_schema import open_index_rw  # noqa: E402
+from photo_ask.jpeg_meta import JpegMetadataError, strip_metadata  # noqa: E402
 import enrich_caption  # noqa: E402
 
 GOOD = {"scene_ko": "가상 식탁", "objects_ko": ["접시", "포크", "접시"], "food": {"present": True, "cuisine": "양식",
@@ -229,6 +232,82 @@ class CaptionOneTest(unittest.TestCase):
         self.assertTrue(all("응답 형식" in rec["error"] for rec, _ in self.logged))
 
 
+def _segment(marker, payload):
+    return bytes((0xFF, marker)) + (len(payload) + 2).to_bytes(2, "big") + payload
+
+
+SECRET = b"SECRET-GPS-37.5665"
+COLOR = (200, 60, 20)
+
+
+def plain_jpeg(size=(16, 8), **save_args):
+    out = io.BytesIO()
+    Image.new("RGB", size, COLOR).save(out, format="JPEG", quality=95, **save_args)
+    return out.getvalue()
+
+
+def jpeg_with_metadata():
+    """디코더가 받아들이는 JPEG에 메타데이터 구간·EOI 앞뒤 데이터·보조 이미지를 넣는다."""
+    exif = Image.Exif()
+    exif[0x010F] = SECRET.decode()
+    data = plain_jpeg(exif=exif.tobytes(), comment=SECRET, icc_profile=b"color" + SECRET)
+    hidden = b"".join(_segment(*seg) for seg in (
+        (0xE1, b"Exif\x00\x00" + SECRET),
+        (0xE1, b"http://ns.adobe.com/xap/1.0/\x00" + SECRET),
+        (0xE2, b"MPF\x00" + SECRET),
+        (0xE2, b"urn:iso:std:iso:ts:21496:-1\x00" + SECRET),
+        (0xED, b"Photoshop 3.0\x00" + SECRET),
+        (0xE5, b"unknown-app-segment" + SECRET),
+        (0xFE, b"comment" + SECRET),
+    ))
+    return data[:2] + hidden + data[2:-2] + SECRET + data[-2:] + b"\xff\xd8" + _segment(0xE1, SECRET) + b"\xff\xd9"
+
+
+class StripMetadataTest(unittest.TestCase):
+    def assert_clean(self, data):
+        out = strip_metadata(data)
+        self.assertNotIn(SECRET, out)
+        self.assertNotIn(b"Exif", out)
+        self.assertNotIn(b"ICC_PROFILE", out)
+        with Image.open(io.BytesIO(out)) as im:
+            self.assertEqual(im.format, "JPEG")
+            self.assertFalse(set(im.info) & {"exif", "comment", "icc_profile", "xmp", "photoshop"}, im.info.keys())
+            im.load()
+        return out
+
+    def test_removes_every_metadata_segment_and_trailing_data(self):
+        self.assert_clean(jpeg_with_metadata())
+
+    def test_removes_data_hidden_in_segments_decoders_accept(self):
+        data = plain_jpeg()
+        density = b"JFIF\x00\x01\x01\x00GPS!\x00\x00"
+        for hidden in (data[:2] + _segment(0xDC, b"\x00\x08" + SECRET) + data[2:],     # DNL 뒤 데이터
+                       data[:-2] + SECRET + data[-2:],                                 # 스캔 뒤 데이터
+                       data[:2] + _segment(0xE0, density + SECRET) + data[20:]):        # JFIF 밀도 칸
+            with self.subTest(hidden=hidden[:24]):
+                out = self.assert_clean(hidden)
+                self.assertNotIn(b"GPS!", out)
+
+    def test_keeps_pixels_size_and_applies_rotation(self):
+        out = self.assert_clean(jpeg_with_metadata())
+        with Image.open(io.BytesIO(out)) as im:
+            self.assertEqual(im.size, (16, 8))
+            for got, want in zip(im.convert("RGB").getpixel((8, 4)), COLOR):
+                self.assertLess(abs(got - want), 6)
+        exif = Image.Exif()
+        exif[0x0112] = 6
+        with Image.open(io.BytesIO(strip_metadata(plain_jpeg(exif=exif.tobytes())))) as im:
+            self.assertEqual(im.size, (8, 16))
+
+    def test_rejects_what_it_cannot_decode(self):
+        good = plain_jpeg()
+        png = io.BytesIO()
+        Image.new("RGB", (4, 4)).save(png, format="PNG")
+        for bad in (b"", b"not a jpeg", png.getvalue(), b"\xff\xd8", good[:len(good) // 2], b"\xff\xd8garbage"):
+            with self.subTest(bad=bad[:12]), self.assertRaises(JpegMetadataError):
+                strip_metadata(bad)
+
+
 class RunBatchTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -241,7 +320,7 @@ class RunBatchTest(unittest.TestCase):
         self.items = []
         for i in range(5):
             img = base / f"P{i}.jpeg"
-            img.write_bytes(b"\xff\xd8\xff\xd9")
+            img.write_bytes(plain_jpeg())
             self.items.append((f"U{i}", str(img)))
         self.stop_file = base / "caption.stop"
         self.out = []
@@ -254,6 +333,33 @@ class RunBatchTest(unittest.TestCase):
             os.environ["GEMINI_API_KEY"] = key
         self.conn.close()
         self.tmp.cleanup()
+
+    def test_batch_sends_only_stripped_bytes(self):
+        Path(self.items[0][1]).write_bytes(jpeg_with_metadata())
+        sent = []
+
+        def caption_fn(uuid, image, log_fn):
+            sent.append(image)
+            return caption.CaptionOutcome(uuid=uuid, ok=False, error_kind="output", error="멈춤")
+
+        self.run_batch(None, items=self.items[:1], caption_fn=caption_fn)
+        self.assertEqual(len(sent), 1)
+        self.assertNotIn(SECRET, sent[0])
+        self.assertEqual(Image.open(io.BytesIO(sent[0])).size, (16, 8))
+
+    def test_file_that_cannot_be_stripped_is_never_sent(self):
+        Path(self.items[0][1]).write_bytes(b"not a jpeg" + SECRET)
+        sent = []
+
+        def caption_fn(uuid, image, log_fn):
+            sent.append(uuid)
+            return caption.CaptionOutcome(uuid=uuid, ok=False, error_kind="output", error="멈춤")
+
+        stats = self.run_batch(None, items=self.items[:1], caption_fn=caption_fn)
+        self.assertEqual(sent, [])
+        self.assertEqual(stats["fail_output"], 1)
+        row = self.conn.execute("SELECT error FROM caption_failures WHERE uuid='U0'").fetchone()
+        self.assertIn("전송 안 함", row[0])
 
     def run_batch(self, post, items=None, budget=1.0, caption_fn=None):
         if caption_fn is None:

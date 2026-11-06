@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-06
+
+### Security
+
+- The caption step now decodes each preview and sends a new pixels-only JPEG to Google Gemini, so file metadata is not carried over. A preview is not sent if this fails. Re-saving slightly reduces quality and removes the color profile. Adds the `pillow` dependency.
+- v0.1.0 sent previews unchanged, including GPS coordinates, capture time, and device model when present. If you ran captions with v0.1.0, that information went to Google. Upgrade before running captions again.
+
 ## [0.1.0] - 2026-11-06
 
 ### Added

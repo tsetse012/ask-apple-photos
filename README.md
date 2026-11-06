@@ -155,10 +155,13 @@ echo "$PHOTO_ASK_WEB_PASSWORD"
 |---|---|---|---|
 | Index / local enrichment | none | — | 0 |
 | Question | Anthropic | question text, library summary (counts, vocabulary, date range), tool results (counts, dates, places, labels, one-line caption scenes) | **0** |
-| Caption (only with `--send-previews`) | Google Gemini | one preview JPEG plus a fixed prompt | 1 per request |
+| Caption (only with `--send-previews`) | Google Gemini | one preview re-saved as a pixels-only JPEG, plus a fixed prompt | 1 per request |
 
 - The question step does not send photos (`photo_ask/agent.py:3`). Tool results do not include full text from photos or file paths.
 - The caption step must be **enabled explicitly**. With a free-tier Gemini key, inputs may be used to improve the product. Check whether sending photos is acceptable, and prefer a paid-tier key.
+- Since v0.1.1, the caption step decodes each preview and sends a new JPEG containing only its pixels (`photo_ask/jpeg_meta.py`). GPS coordinates, capture time, device model, and other file metadata are not carried over. A photo is not sent if this fails. What is visible in the photo itself, such as faces, signs, and documents, is still sent.
+- Re-saving slightly reduces image quality and removes the color profile, so wide-gamut photos can look slightly different to the model.
+- **v0.1.0 sent previews with this metadata.** If you ran captions with v0.1.0, any coordinates, capture times, and device models stored in those previews went to Google.
 - API keys are read from environment variables only. There is no feature that writes them to a file.
 
 ## Cost

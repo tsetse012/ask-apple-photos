@@ -3,6 +3,7 @@
 
 - ⚠️ 미리보기 사진(대부분 360×480 JPEG)이 Google로 나간다. --send-previews 없이는 사진을 보내지 않고
   무엇이 어디로 나가는지 안내한 뒤 종료 코드 2로 끝난다. --report·--reparse는 네트워크를 쓰지 않는다.
+- 전송 직전 미리보기를 픽셀만 담은 새 JPEG로 다시 저장한다(photo_ask/jpeg_meta.py). 실패하면 그 사진은 보내지 않는다.
 - 요청 시도마다 logs/llm.jsonl 에 provider=gemini · images_sent=1 · uuid · 이미지 sha1·바이트 수를 남기고,
   모델 응답 원문은 logs/captions_raw.jsonl 에 남긴다.
 - 대상: 사진(영상 제외), 미리보기 있는 것. 숨김은 기본 제외(--no-skip-hidden 이면 포함), 스크린샷은 기본 포함
@@ -37,6 +38,7 @@ sys.path.insert(0, str(ROOT))
 
 from photo_ask import caption, config, llm_log  # noqa: E402
 from photo_ask.cards_schema import open_index_rw  # noqa: E402
+from photo_ask.jpeg_meta import JpegMetadataError, strip_metadata  # noqa: E402
 
 STOP_FILE = config.LOG_DIR / "caption.stop"
 EST_DEFAULT = 0.001    # 첫 성공 전 1장 추정 비용(USD) — 실측 평균이 생기면 그것을 쓴다
@@ -155,7 +157,7 @@ def run(conn, items, *, model, budget, concurrency, caption_fn, run_id, progress
                     break
                 uuid, path = nxt
                 try:
-                    image = Path(path).read_bytes()
+                    image = strip_metadata(Path(path).read_bytes())
                 except OSError as e:
                     o = caption.CaptionOutcome(uuid=uuid, ok=False, error_kind="environment",
                                                error=f"미리보기 읽기 실패: {e}")
@@ -163,6 +165,15 @@ def run(conn, items, *, model, budget, concurrency, caption_fn, run_id, progress
                     stats["done"] += 1
                     stats["fail"] += 1
                     stats["fail_environment"] += 1
+                    continue
+                except JpegMetadataError as e:
+                    # 메타데이터를 지웠다고 보장할 수 없으면 보내지 않는다.
+                    o = caption.CaptionOutcome(uuid=uuid, ok=False, error_kind="output",
+                                               error=f"메타데이터 제거 실패, 전송 안 함: {e}")
+                    save_failure(conn, o, model)
+                    stats["done"] += 1
+                    stats["fail"] += 1
+                    stats["fail_output"] += 1
                     continue
                 fut = ex.submit(caption_fn, uuid, image, ledger.log)
                 pending[fut] = uuid
